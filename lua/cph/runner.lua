@@ -21,11 +21,15 @@ local lines = {}
 
 ---@type CPHtest[]
 local tests = {}
+---@type string[]
+local passed = {}
+
 ---@type integer
 local current = 1
 ---@type string
 local file_path = ""
 local in_create_ui = false
+local in_tests_ui = false
 
 local group = vim.api.nvim_create_augroup("MyPluginTrackSource", { clear = true })
 
@@ -44,10 +48,23 @@ local function cph_exits()
 	return vim.uv.fs_stat(get_tests_path()) ~= nil
 end
 
-local function creat_test()
+local function write_tests()
 	local cph_dir = vim.fn.fnamemodify(get_tests_path(), ":h")
 	vim.fn.mkdir(cph_dir, "p")
-	vim.fn.writefile({ "[]" }, get_tests_path())
+	vim.fn.writefile({ vim.json.encode(tests) }, get_tests_path())
+end
+
+local function creat_tests()
+	tests = {}
+	table.insert(tests, {
+		std_input = "",
+		std_output = "",
+		real_output = "",
+		time_limit = get_config().run.time_limit,
+		mem_limit = get_config().run.memory_limit,
+	})
+
+	write_tests()
 end
 
 local function get_tests()
@@ -58,10 +75,15 @@ end
 
 local function set_tests_ui()
 	get_tests()
+	lines[1] = "File: " .. vim.fn.fnamemodify(file_path, ":t")
+	lines[2] = " "
+	for i, _ in ipairs(tests) do
+		local status = passed[i] or ""
+		lines[#lines + 1] = "Test " .. tostring(i) .. "\t" .. status
+	end
 end
 
 local function set_creat_ui()
-	in_create_ui = true
 	lines = (function()
 		local prompts = {
 			"当前文件还没有创建 cph",
@@ -88,7 +110,6 @@ end
 
 
 local function set_welcome()
-	in_create_ui = false
 	lines = (function()
 		local art = {
 			"  _____ ____  _   _ ",
@@ -118,19 +139,34 @@ local function set_welcome()
 end
 
 local function build_lines()
-	local config = get_config()
-
+	lines = {}
 	local type = vim.uv.fs_stat(file_path)
 
 	if not type or type.type == "directory" then
+		in_create_ui = false
+		in_tests_ui  = false
 		set_welcome()
 	elseif not cph_exits() then
+		in_tests_ui  = false
+		in_create_ui = true
 		set_creat_ui()
 	else
 		in_create_ui = false
+		in_tests_ui = true
 		set_tests_ui()
 	end
 end
+
+local function map_multi(modes, lhs_list, rhs, opts)
+	if type(lhs_list) == "string" then
+		lhs_list = { lhs_list }
+	end
+
+	for _, lhs in ipairs(lhs_list) do
+		vim.keymap.set(modes, lhs, rhs, opts)
+	end
+end
+
 
 local function set_keymaps()
 	vim.keymap.set("n", "q", function()
@@ -144,10 +180,13 @@ local function set_keymaps()
 
 	vim.keymap.set("n", "c", function()
 		if in_create_ui then
-			creat_test()
+			creat_tests()
 			M.refresh()
 		end
 	end, { buffer = buf, silent = true })
+
+	map_multi("n", { "j", "<Down>" }, M.next_test, { buffer = buf, silent = true })
+	map_multi("n", { "k", "<Up>" }, M.last_test, { buffer = buf, silent = true })
 end
 
 
@@ -229,13 +268,13 @@ function M.toggle()
 end
 
 function M.next_test()
-	if current < #tests then
+	if in_tests_ui and current < #tests then
 		current = current + 1
 	end
 end
 
 function M.last_test()
-	if current > 2 then
+	if in_tests_ui and current > 2 then
 		current = current - 1
 	end
 end

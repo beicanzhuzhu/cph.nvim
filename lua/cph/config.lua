@@ -2,7 +2,8 @@ local M = {}
 
 
 ---@class cphRunOpts
----@field timeout? integer
+---@field time_limit integer
+---@field memory_limit integer
 
 ---@class cphWinOpts
 ---@field width integer
@@ -30,7 +31,8 @@ local default = {
 		},
 	},
 	run = {
-		timeout = 2000
+		time_limit = 2000,
+		memory_limit = 2048,
 	}
 }
 
