@@ -12,9 +12,10 @@ local links = {
 	CphSelected = "DiagnosticOk",
 	CphSelectedBlock = "DiffAdd",
 	CphAccent = "Special",
-	CphRunning = "DiagnosticWarn",
-	CphPass = "DiagnosticOk",
-	CphFailed = "DiagnosticError",
+	CphCompiling = "IncSearch",
+	CphRunning = "Search",
+	CphPass = "DiffAdd",
+	CphFailed = "DiffDelete",
 	CphMetric = "Special",
 }
 

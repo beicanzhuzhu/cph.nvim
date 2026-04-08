@@ -4,7 +4,7 @@
 ---@field real_output string
 ---@field time_limit integer
 ---@field mem_limit integer
----@field passed string
+---@field passed string|nil
 ---@field selected boolean
 ---@field collapsed boolean
 ---@field runtime_ms integer|nil
@@ -13,10 +13,16 @@ local executor = require("cph.executor")
 
 local M = {}
 
-local STATUS_IDLE = ""
+local STATUS_COMPILING = "compiling"
 local STATUS_RUNNING = "running"
 local STATUS_PASS = "pass"
 local STATUS_FAILED = "failed"
+local VALID_STATUSES = {
+	[STATUS_COMPILING] = true,
+	[STATUS_RUNNING] = true,
+	[STATUS_PASS] = true,
+	[STATUS_FAILED] = true,
+}
 
 local highlight_ns = vim.api.nvim_create_namespace("cph-runner-highlight")
 local decor_ns = vim.api.nvim_create_namespace("cph-runner-decor")
@@ -68,12 +74,30 @@ local function tests_file_exists(target_file_path)
 	return vim.uv.fs_stat(get_tests_path(target_file_path)) ~= nil
 end
 
+---@param status any
+---@return string|nil
+local function normalize_status(status)
+	if status == true then
+		return STATUS_PASS
+	end
+
+	if status == false then
+		return STATUS_FAILED
+	end
+
+	if type(status) == "string" and VALID_STATUSES[status] then
+		return status
+	end
+
+	return nil
+end
+
 ---@param test table
 ---@return CPHtest
 local function normalize_test(test)
 	local config = get_config()
 	test.real_output = test.real_output or ""
-	test.passed = test.passed or STATUS_IDLE
+	test.passed = normalize_status(test.passed)
 	test.selected = test.selected or false
 	test.collapsed = test.collapsed or false
 	test.time_limit = test.time_limit or config.run.time_limit
@@ -166,7 +190,7 @@ local function create_test_template()
 		real_output = "",
 		time_limit = config.run.time_limit,
 		mem_limit = config.run.memory_limit,
-		passed = STATUS_IDLE,
+		passed = nil,
 		selected = false,
 		collapsed = false,
 		runtime_ms = nil,
@@ -316,9 +340,14 @@ local function set_tests_winbar()
 	local summary = ratio
 	local summary_hl = "CphSelected"
 
-	if is_file_running() and active_run_test_index then
-		summary = string.format("running on test %d", active_run_test_index)
-		summary_hl = "CphRunning"
+	if is_file_running() then
+		if active_run_test_index then
+			summary = string.format("running on test %d", active_run_test_index)
+			summary_hl = "CphRunning"
+		else
+			summary = "compiling"
+			summary_hl = "CphCompiling"
+		end
 	end
 
 	set_winbar(
@@ -457,11 +486,11 @@ local function open_edit_popup(field, title)
 end
 
 local function format_status(test)
-	if test.passed ~= STATUS_IDLE then
+	if test.passed ~= nil then
 		return test.passed
 	end
 
-	return "idle"
+	return "-"
 end
 
 local function format_runtime(test)
@@ -513,7 +542,9 @@ local function apply_decorations()
 
 			if meta.status_col then
 				local group_name = "CphMuted"
-				if meta.status == STATUS_RUNNING then
+				if meta.status == STATUS_COMPILING then
+					group_name = "CphCompiling"
+				elseif meta.status == STATUS_RUNNING then
 					group_name = "CphRunning"
 				elseif meta.status == STATUS_PASS then
 					group_name = "CphPass"
@@ -588,14 +619,14 @@ local function refresh_tests_ui()
 			push_test_line(i, build_preview("  input", test.std_input, width), { kind = "preview" })
 			push_test_line(i, build_preview("  expected", test.std_output, width), { kind = "preview" })
 
-			if test.real_output ~= "" or test.passed ~= STATUS_IDLE then
+			if test.real_output ~= "" or test.passed ~= nil then
 				push_test_line(i, build_preview("  output", test.real_output, width), { kind = "preview" })
 			end
 		else
 			append_labeled_block(i, "  input", test.std_input)
 			append_labeled_block(i, "  expected", test.std_output)
 
-			if test.real_output ~= "" or test.passed ~= STATUS_IDLE then
+			if test.real_output ~= "" or test.passed ~= nil then
 				append_labeled_block(i, "  output", test.real_output)
 			end
 		end
@@ -888,7 +919,11 @@ local function patch_test(target_file_path, index, patch, skip_refresh)
 	end
 
 	for key, value in pairs(patch) do
-		target[key] = value
+		if key == "passed" then
+			target[key] = normalize_status(value)
+		else
+			target[key] = value
+		end
 	end
 
 	if not skip_refresh then
@@ -966,7 +1001,7 @@ local function run_tests()
 	for _, item in ipairs(queue) do
 		patch_test(target_file_path, item.index, {
 			real_output = "",
-			passed = STATUS_IDLE,
+			passed = STATUS_COMPILING,
 			runtime_ms = nil,
 		}, true)
 	end
@@ -985,12 +1020,12 @@ local function run_tests()
 			end
 			M.refresh()
 			vim.notify("cph: compilation failed", vim.log.levels.ERROR)
-			end,
-			on_test_start = function(index)
-				active_run_test_index = index
-				patch_test(target_file_path, index, {
-					real_output = "",
-					passed = STATUS_RUNNING,
+		end,
+		on_test_start = function(index)
+			active_run_test_index = index
+			patch_test(target_file_path, index, {
+				real_output = "",
+				passed = STATUS_RUNNING,
 				runtime_ms = nil,
 			})
 		end,
@@ -1000,14 +1035,14 @@ local function run_tests()
 				passed = result.passed,
 				runtime_ms = result.runtime_ms,
 			})
-			end,
-			on_done = function()
-				run_active = false
-				active_run_file = nil
-				active_run_test_index = nil
-				if target_file_path == file_path then
-					M.refresh()
-				end
+		end,
+		on_done = function()
+			run_active = false
+			active_run_file = nil
+			active_run_test_index = nil
+			if target_file_path == file_path then
+				M.refresh()
+			end
 		end,
 	})
 end
