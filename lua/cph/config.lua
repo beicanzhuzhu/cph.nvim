@@ -1,24 +1,14 @@
 local M = {}
 
----@class CphRunOpts
----@field time_limit integer
----@field memory_limit integer
+local valid_window_dirs = {
+	left = true,
+	right = true,
+	above = true,
+	below = true,
+	floating = true,
+}
 
----@class CphWindowOpts
----@field width integer
----@field dir string
----@field height integer
-
----@class CphCompileOpt
----@field compiler string
----@field arg? string
-
----@class CphOpts
----@field window CphWindowOpts
----@field compile table<string, CphCompileOpt>
----@field run CphRunOpts
-
----@type CphOpts
+---@type cph.Config
 local default_opts = {
 	window = {
 		width = 100,
@@ -37,21 +27,37 @@ local default_opts = {
 	},
 }
 
----@type CphOpts
+---@type cph.Config
 M.opts = vim.deepcopy(default_opts)
 
----@param opts? CphOpts
-function M.setup(opts)
-	opts = opts or {}
+---@type cph.Config
+M.defaults = vim.deepcopy(default_opts)
 
-	local merged = vim.tbl_deep_extend("force", vim.deepcopy(default_opts), opts)
-	if opts.compile ~= nil then
-		merged.compile = opts.compile
+---@param value unknown
+---@param name string
+local function validate_positive_integer(value, name)
+	vim.validate({
+		[name] = { value, "number" },
+	})
+
+	if value < 1 or math.floor(value) ~= value then
+		error(string.format("cph.setup(): %s must be a positive integer", name))
 	end
+end
 
-	for filetype, item in pairs(merged.compile) do
-		if type(filetype) ~= "string" then
-			error("cph.setup(): compile keys must be filetype strings")
+---@param compile table<string, cph.CompileRule>
+local function validate_compile(compile)
+	vim.validate({
+		compile = { compile, "table" },
+	})
+
+	for filetype, item in pairs(compile) do
+		if type(filetype) ~= "string" or filetype == "" then
+			error("cph.setup(): compile keys must be non-empty filetype strings")
+		end
+
+		if type(item) ~= "table" then
+			error(string.format("cph.setup(): compile.%s must be a table", filetype))
 		end
 
 		vim.validate({
@@ -59,21 +65,42 @@ function M.setup(opts)
 			arg = { item.arg, "string", true },
 		})
 	end
+end
 
+---@param config cph.Config
+local function validate_config(config)
 	vim.validate({
-		window = { merged.window, "table" },
-		compile = { merged.compile, "table" },
-		run = { merged.run, "table" },
+		window = { config.window, "table" },
+		compile = { config.compile, "table" },
+		run = { config.run, "table" },
 	})
 
-	vim.validate({
-		time_limit = { merged.run.time_limit, "number" },
-		memory_limit = { merged.run.memory_limit, "number" },
-	})
+	validate_positive_integer(config.window.width, "window.width")
+	validate_positive_integer(config.window.height, "window.height")
 
+	if not valid_window_dirs[config.window.dir] then
+		error("cph.setup(): window.dir must be one of left, right, above, below, floating")
+	end
+
+	validate_compile(config.compile)
+	validate_positive_integer(config.run.time_limit, "run.time_limit")
+	validate_positive_integer(config.run.memory_limit, "run.memory_limit")
+end
+
+---@param opts? cph.SetupOpts
+function M.setup(opts)
+	opts = opts or {}
+
+	local merged = vim.tbl_deep_extend("force", vim.deepcopy(default_opts), opts)
+	if opts.compile ~= nil then
+		merged.compile = vim.deepcopy(opts.compile)
+	end
+
+	validate_config(merged)
 	M.opts = merged
 end
 
+---@return cph.Config
 function M.get()
 	return M.opts
 end

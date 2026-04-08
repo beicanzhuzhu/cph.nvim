@@ -1,3 +1,8 @@
+---@class cph.Module
+---@field toggle fun()
+---@field setup fun(opts?: cph.SetupOpts)
+
+---@type cph.Module
 local M = {}
 
 local config = require("cph.config")
@@ -10,6 +15,7 @@ function M.toggle()
 	runner.toggle()
 end
 
+---@param opts? cph.SetupOpts
 function M.setup(opts)
 	config.setup(opts)
 	highlights.setup()
