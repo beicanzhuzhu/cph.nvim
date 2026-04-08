@@ -23,6 +23,9 @@ end
 
 vim.g.mapleader = " "
 
+require("cph.types")
+
+---@type cph.SetupOpts
 local config = {
 	compile = {
 		cpp = {
@@ -33,7 +36,7 @@ local config = {
 		},
 	},
 	run = {
-		time_limit = 1991,
+		time_limit = 2000,
 	},
 	window = {
 		dir = "floating",

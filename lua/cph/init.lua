@@ -1,8 +1,5 @@
----@class cph.Module
----@field toggle fun()
----@field setup fun(opts?: cph.SetupOpts)
+require("cph.types")
 
----@type cph.Module
 local M = {}
 
 local config = require("cph.config")

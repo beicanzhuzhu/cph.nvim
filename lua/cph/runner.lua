@@ -29,10 +29,13 @@ local decor_ns = vim.api.nvim_create_namespace("cph-runner-decor")
 local popup_group = vim.api.nvim_create_augroup("CphRunnerPopup", { clear = true })
 local group = vim.api.nvim_create_augroup("CphTrackSource", { clear = true })
 
----@type integer
+---@type integer?
 local buf = nil
+---@type integer?
 local win = nil
+---@type integer?
 local edit_buf = nil
+---@type integer?
 local edit_win = nil
 local edit_sync_pending = false
 
@@ -54,7 +57,9 @@ local ui_file_path = ""
 local in_create_ui = false
 local in_tests_ui = false
 local run_active = false
+---@type string?
 local active_run_file = nil
+---@type integer?
 local active_run_test_index = nil
 
 local function get_config()
@@ -1136,6 +1141,7 @@ local function set_keymaps()
 	map_multi("n", { "[t", "[[" }, M.last_test, { buffer = buf, silent = true })
 end
 
+---@return integer
 local function ensure_buf()
 	if buf and vim.api.nvim_buf_is_valid(buf) then
 		return buf
@@ -1161,16 +1167,16 @@ local function ensure_buf()
 end
 
 function M.render()
-	ensure_buf()
+	local render_buf = ensure_buf()
 
 	local cursor_state = capture_cursor_state()
 
-	vim.bo[buf].modifiable = true
-	vim.api.nvim_buf_clear_namespace(buf, highlight_ns, 0, -1)
-	vim.api.nvim_buf_clear_namespace(buf, decor_ns, 0, -1)
+	vim.bo[render_buf].modifiable = true
+	vim.api.nvim_buf_clear_namespace(render_buf, highlight_ns, 0, -1)
+	vim.api.nvim_buf_clear_namespace(render_buf, decor_ns, 0, -1)
 	build_lines()
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
+	vim.api.nvim_buf_set_lines(render_buf, 0, -1, false, lines)
+	vim.bo[render_buf].modifiable = false
 	apply_decorations()
 	restore_cursor_state(cursor_state)
 end
@@ -1192,9 +1198,9 @@ function M.open()
 		return
 	end
 
-	ensure_buf()
+	local panel_buf = ensure_buf()
 	if config.window.dir == "floating" then
-		win = vim.api.nvim_open_win(buf, true, {
+		win = vim.api.nvim_open_win(panel_buf, true, {
 			relative = "win",
 			height = config.window.height,
 			width = config.window.width,
@@ -1204,8 +1210,10 @@ function M.open()
 			border = "rounded",
 		})
 	else
-		win = vim.api.nvim_open_win(buf, true, {
-			split = config.window.dir,
+		local split_dir = config.window.dir
+		---@cast split_dir cph.SplitWindowDirection
+		win = vim.api.nvim_open_win(panel_buf, true, {
+			split = split_dir,
 			win = -1,
 		})
 	end

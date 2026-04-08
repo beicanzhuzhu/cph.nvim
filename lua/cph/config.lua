@@ -92,8 +92,9 @@ function M.setup(opts)
 	opts = opts or {}
 
 	local merged = vim.tbl_deep_extend("force", vim.deepcopy(default_opts), opts)
-	if opts.compile ~= nil then
-		merged.compile = vim.deepcopy(opts.compile)
+	local compile = opts.compile
+	if compile ~= nil then
+		merged.compile = vim.deepcopy(compile)
 	end
 
 	validate_config(merged)
