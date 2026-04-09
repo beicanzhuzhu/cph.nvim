@@ -124,15 +124,8 @@ end
 
 local function run_single_test(binary_path, test, callback)
 	local start = vim.uv.hrtime()
-	local mem_limit_mb = tonumber(test.mem_limit) or 0
-	local mem_limit_kb = mem_limit_mb > 0 and mem_limit_mb * 1024 or 0
 	local command = {
-		"sh",
-		"-c",
-		'if [ "$2" -gt 0 ]; then ulimit -v "$2"; fi; exec "$1"',
-		"cph-run",
 		binary_path,
-		tostring(mem_limit_kb),
 	}
 
 	vim.system(command, {

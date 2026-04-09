@@ -37,4 +37,4 @@ require("cph").setup({
 - `compile.<filetype>.compiler`: 编译命令
 - `compile.<filetype>.arg`: 编译参数字符串
 - `run.time_limit`: 运行超时，单位毫秒
-- `run.memory_limit`: 内存限制，单位 MB
+- `run.memory_limit`: 内存限制，单位 MB（配置项保留，当前版本运行时暂不强制生效）
