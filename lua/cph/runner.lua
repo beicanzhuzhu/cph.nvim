@@ -356,10 +356,14 @@ local function set_tests_winbar()
 	end
 
 	set_winbar(
-		"%#CphTitle#" .. escape_statusline(title)
-		.. "%="
-		.. "%#" .. summary_hl .. "#" .. escape_statusline(summary)
-		.. "%*"
+		"%#CphTitle#"
+			.. escape_statusline(title)
+			.. "%="
+			.. "%#"
+			.. summary_hl
+			.. "#"
+			.. escape_statusline(summary)
+			.. "%*"
 	)
 end
 
@@ -459,6 +463,7 @@ local function open_edit_popup(field, title)
 	vim.wo[edit_win].number = false
 	vim.wo[edit_win].relativenumber = false
 	vim.wo[edit_win].signcolumn = "no"
+	vim.wo[edit_win].list = false
 
 	vim.keymap.set("n", "q", close_edit_popup, { buffer = edit_buf, silent = true })
 	vim.keymap.set("n", "<Esc>", close_edit_popup, { buffer = edit_buf, silent = true })
@@ -590,8 +595,7 @@ local function refresh_tests_ui()
 		current = math.max(1, math.min(current, #tests))
 	end
 
-	local width = win and vim.api.nvim_win_is_valid(win)
-		and vim.api.nvim_win_get_width(win)
+	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
 		or get_config().window.width
 
 	lines = {}
@@ -834,8 +838,8 @@ local function set_create_ui()
 		"当前文件还没有创建 cph",
 		"按下 c 创建",
 	}
-	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or get_config().window
-		.width
+	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
+		or get_config().window.width
 	local height = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_height(win) or #prompts
 	local top_pad = math.max(1, math.floor(height * 0.2))
 
@@ -862,8 +866,8 @@ local function set_welcome()
 		"| |____| |   | | | |",
 		" \\_____|_|   |_| |_|",
 	}
-	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or get_config().window
-		.width
+	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
+		or get_config().window.width
 	local height = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_height(win) or #art
 	local top_pad = math.max(0, math.floor((height - #art) / 2))
 
@@ -1231,6 +1235,7 @@ function M.open()
 	vim.wo[win].winfixwidth = true
 	vim.wo[win].statuscolumn = ""
 	vim.wo[win].fillchars = "eob: "
+	vim.wo[win].list = false
 
 	M.render()
 end
