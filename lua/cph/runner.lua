@@ -37,6 +37,8 @@ local win = nil
 local edit_buf = nil
 ---@type integer?
 local edit_win = nil
+---@type string?
+local edit_field = nil
 local edit_sync_pending = false
 
 local lines = {}
@@ -263,6 +265,30 @@ local function join_lines(input_lines)
 	return table.concat(input_lines, "\n")
 end
 
+local function is_valid_buf(target_buf)
+	return target_buf and vim.api.nvim_buf_is_valid(target_buf)
+end
+
+local function is_loaded_buf(target_buf)
+	return is_valid_buf(target_buf) and vim.api.nvim_buf_is_loaded(target_buf)
+end
+
+local function is_valid_win(target_win)
+	return target_win and vim.api.nvim_win_is_valid(target_win)
+end
+
+local function is_cph_ui_buffer(target_buf)
+	return is_loaded_buf(target_buf) and vim.b[target_buf].cph_ui == true
+end
+
+local function get_buf_name(target_buf)
+	if not is_valid_buf(target_buf) then
+		return ""
+	end
+
+	return vim.api.nvim_buf_get_name(target_buf)
+end
+
 local function push_line(text, meta)
 	lines[#lines + 1] = text
 	line_meta[#lines] = meta or {}
@@ -324,7 +350,7 @@ local function append_labeled_block(index, label, text)
 end
 
 local function set_winbar(content)
-	if win and vim.api.nvim_win_is_valid(win) then
+	if is_valid_win(win) then
 		vim.wo[win].winbar = content
 	end
 end
@@ -367,18 +393,34 @@ local function set_tests_winbar()
 	)
 end
 
+local sync_edit_popup
+
 local function close_edit_popup()
-	if edit_win and vim.api.nvim_win_is_valid(edit_win) then
+	if edit_field then
+		sync_edit_popup(edit_field, true, false)
+	end
+
+	if is_valid_win(edit_win) then
 		vim.api.nvim_win_close(edit_win, true)
 	end
 
 	edit_win = nil
 	edit_buf = nil
+	edit_field = nil
 	edit_sync_pending = false
 end
 
-local function sync_edit_popup(field)
-	if not (edit_buf and vim.api.nvim_buf_is_valid(edit_buf)) then
+local function clear_panel_window(target_win)
+	if target_win and win and target_win ~= win then
+		return
+	end
+
+	win = nil
+	close_edit_popup()
+end
+
+sync_edit_popup = function(field, finalize, restore_focus)
+	if not is_loaded_buf(edit_buf) then
 		return
 	end
 
@@ -388,30 +430,19 @@ local function sync_edit_popup(field)
 
 	local test = tests[current]
 	if not test then
-		close_edit_popup()
 		return
 	end
 
 	local value = join_lines(vim.api.nvim_buf_get_lines(edit_buf, 0, -1, false))
-	if field == "std_output" then
+	if finalize and field == "std_output" then
 		value = normalize_expected_text(value)
-		if edit_buf and vim.api.nvim_buf_is_valid(edit_buf) then
-			local normalized_lines = split_text(value)
-			local current_lines = vim.api.nvim_buf_get_lines(edit_buf, 0, -1, false)
-			if not vim.deep_equal(current_lines, normalized_lines) then
-				edit_sync_pending = true
-				vim.bo[edit_buf].modifiable = true
-				vim.api.nvim_buf_set_lines(edit_buf, 0, -1, false, normalized_lines)
-				edit_sync_pending = false
-			end
-		end
 	end
 
 	test[field] = value
 	write_tests()
 	M.refresh()
-	if edit_win and vim.api.nvim_win_is_valid(edit_win) then
-		vim.api.nvim_set_current_win(edit_win)
+	if restore_focus ~= false and is_valid_win(edit_win) then
+		pcall(vim.api.nvim_set_current_win, edit_win)
 	end
 end
 
@@ -436,6 +467,8 @@ local function open_edit_popup(field, title)
 	local height = math.max(8, math.min(vim.o.lines - 6, #content_lines + 2))
 
 	edit_buf = vim.api.nvim_create_buf(false, true)
+	edit_field = field
+	vim.b[edit_buf].cph_ui = true
 	vim.b[edit_buf].cph_popup = true
 	vim.bo[edit_buf].buftype = "nofile"
 	vim.bo[edit_buf].bufhidden = "wipe"
@@ -473,8 +506,14 @@ local function open_edit_popup(field, title)
 		buffer = edit_buf,
 		once = true,
 		callback = function()
+			if edit_field then
+				sync_edit_popup(edit_field, true, false)
+			end
+
 			edit_win = nil
 			edit_buf = nil
+			edit_field = nil
+			edit_sync_pending = false
 		end,
 	})
 
@@ -487,7 +526,7 @@ local function open_edit_popup(field, title)
 			edit_sync_pending = true
 			vim.schedule(function()
 				edit_sync_pending = false
-				sync_edit_popup(field)
+				sync_edit_popup(field, false, true)
 			end)
 		end,
 	})
@@ -512,7 +551,7 @@ local function format_runtime(test)
 end
 
 local function apply_decorations()
-	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+	if not is_loaded_buf(buf) then
 		return
 	end
 
@@ -595,8 +634,7 @@ local function refresh_tests_ui()
 		current = math.max(1, math.min(current, #tests))
 	end
 
-	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
-		or get_config().window.width
+	local width = is_valid_win(win) and vim.api.nvim_win_get_width(win) or get_config().window.width
 
 	lines = {}
 	line_meta = {}
@@ -655,7 +693,7 @@ local function refresh_tests_ui()
 end
 
 local function update_current_test_highlight()
-	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+	if not is_loaded_buf(buf) then
 		return
 	end
 
@@ -676,7 +714,7 @@ local function update_current_test_highlight()
 end
 
 local function move_cursor_to_row(row, preferred_topline)
-	if not (win and vim.api.nvim_win_is_valid(win)) then
+	if not is_valid_win(win) then
 		return
 	end
 
@@ -703,10 +741,10 @@ local function move_cursor_to_row(row, preferred_topline)
 end
 
 local function capture_cursor_state()
-	if not (win and vim.api.nvim_win_is_valid(win)) then
+	if not is_valid_win(win) then
 		return nil
 	end
-	if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+	if not is_loaded_buf(buf) then
 		return nil
 	end
 
@@ -762,7 +800,7 @@ local function sync_current_from_cursor()
 		update_current_test_highlight()
 		return
 	end
-	if not (win and vim.api.nvim_win_is_valid(win)) then
+	if not is_valid_win(win) then
 		return
 	end
 
@@ -838,9 +876,8 @@ local function set_create_ui()
 		"当前文件还没有创建 cph",
 		"按下 c 创建",
 	}
-	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
-		or get_config().window.width
-	local height = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_height(win) or #prompts
+	local width = is_valid_win(win) and vim.api.nvim_win_get_width(win) or get_config().window.width
+	local height = is_valid_win(win) and vim.api.nvim_win_get_height(win) or #prompts
 	local top_pad = math.max(1, math.floor(height * 0.2))
 
 	for _ = 1, top_pad do
@@ -866,9 +903,8 @@ local function set_welcome()
 		"| |____| |   | | | |",
 		" \\_____|_|   |_| |_|",
 	}
-	local width = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win)
-		or get_config().window.width
-	local height = win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_height(win) or #art
+	local width = is_valid_win(win) and vim.api.nvim_win_get_width(win) or get_config().window.width
+	local height = is_valid_win(win) and vim.api.nvim_win_get_height(win) or #art
 	local top_pad = math.max(0, math.floor((height - #art) / 2))
 
 	for _ = 1, top_pad do
@@ -942,7 +978,7 @@ end
 
 local function save_source_buffer(target_file_path)
 	local source_buf = vim.fn.bufnr(target_file_path)
-	if source_buf < 0 or not vim.api.nvim_buf_is_valid(source_buf) then
+	if source_buf < 0 or not is_loaded_buf(source_buf) then
 		return true
 	end
 
@@ -1147,13 +1183,15 @@ end
 
 ---@return integer
 local function ensure_buf()
-	if buf and vim.api.nvim_buf_is_valid(buf) then
+	if is_cph_ui_buffer(buf) then
 		return buf
 	end
 
 	buf = vim.api.nvim_create_buf(false, true)
+	vim.b[buf].cph_ui = true
 	vim.bo[buf].buftype = "nofile"
-	vim.bo[buf].bufhidden = "hide"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].buflisted = false
 	vim.bo[buf].swapfile = false
 	vim.bo[buf].filetype = "cph-tree"
 
@@ -1162,6 +1200,19 @@ local function ensure_buf()
 		buffer = buf,
 		callback = function()
 			sync_current_from_cursor()
+		end,
+	})
+
+	vim.api.nvim_create_autocmd({ "BufUnload", "BufWipeout", "BufDelete" }, {
+		group = popup_group,
+		buffer = buf,
+		callback = function(args)
+			if args.buf ~= buf then
+				return
+			end
+
+			buf = nil
+			clear_panel_window()
 		end,
 	})
 
@@ -1181,22 +1232,29 @@ function M.render()
 	build_lines()
 	vim.api.nvim_buf_set_lines(render_buf, 0, -1, false, lines)
 	vim.bo[render_buf].modifiable = false
+	vim.bo[render_buf].modified = false
 	apply_decorations()
 	restore_cursor_state(cursor_state)
 end
 
 function M.refresh()
-	if win and vim.api.nvim_win_is_valid(win) then
-		vim.api.nvim_win_set_width(win, get_config().window.width)
-		M.render()
+	if not is_valid_win(win) then
+		win = nil
+		return
 	end
+
+	vim.api.nvim_win_set_width(win, get_config().window.width)
+	M.render()
 end
 
 function M.open()
 	local config = get_config()
-	file_path = vim.api.nvim_buf_get_name(0)
+	local current_buf = vim.api.nvim_get_current_buf()
+	if not is_cph_ui_buffer(current_buf) then
+		file_path = get_buf_name(current_buf)
+	end
 
-	if win and vim.api.nvim_win_is_valid(win) then
+	if is_valid_win(win) then
 		vim.api.nvim_set_current_win(win)
 		M.refresh()
 		return
@@ -1222,6 +1280,15 @@ function M.open()
 		})
 	end
 
+	vim.api.nvim_create_autocmd("WinClosed", {
+		group = popup_group,
+		pattern = tostring(win),
+		once = true,
+		callback = function(args)
+			clear_panel_window(tonumber(args.match))
+		end,
+	})
+
 	vim.api.nvim_win_set_width(win, config.window.width)
 	vim.wo[win].number = false
 	vim.wo[win].relativenumber = false
@@ -1242,14 +1309,14 @@ end
 
 function M.close()
 	close_edit_popup()
-	if win and vim.api.nvim_win_is_valid(win) then
+	if is_valid_win(win) then
 		vim.api.nvim_win_close(win, true)
 	end
 	win = nil
 end
 
 function M.toggle()
-	if win and vim.api.nvim_win_is_valid(win) then
+	if is_valid_win(win) then
 		M.close()
 	else
 		M.open()
@@ -1272,11 +1339,11 @@ function M.setup()
 	vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "TabEnter" }, {
 		group = group,
 		callback = function(args)
-			if vim.b[args.buf].cph_popup then
+			if is_cph_ui_buffer(args.buf) then
 				return
 			end
 			if buf ~= args.buf then
-				file_path = vim.api.nvim_buf_get_name(args.buf)
+				file_path = get_buf_name(args.buf)
 				M.refresh()
 			end
 		end,
@@ -1285,12 +1352,17 @@ function M.setup()
 	vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
 		group = group,
 		callback = function(args)
-			if vim.b[args.buf].cph_popup then
+			if is_cph_ui_buffer(args.buf) then
 				return
 			end
-			if vim.api.nvim_buf_get_name(args.buf) == file_path then
+			if get_buf_name(args.buf) == file_path then
 				local current_win = vim.api.nvim_get_current_win()
-				file_path = vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(current_win))
+				local current_buf = vim.api.nvim_win_get_buf(current_win)
+				if is_cph_ui_buffer(current_buf) then
+					return
+				end
+
+				file_path = get_buf_name(current_buf)
 				M.refresh()
 			end
 		end,
